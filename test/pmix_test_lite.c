@@ -139,6 +139,7 @@ static void message_handler(int incoming_sd, short flags, void* cbdata);
 static int start_listening(struct sockaddr_un *address);
 
 bool verbose = false;
+bool passed = true;
 
 static void errhandler(pmix_status_t status,
                        pmix_range_t ranges[], size_t nranges,
@@ -146,6 +147,7 @@ static void errhandler(pmix_status_t status,
 {
     TEST_ERROR(("Error handler with status = %d", status))
     test_abort = true;
+    passed = false;
 }
 
 static int cli_rank(cli_info_t *cli)
@@ -180,6 +182,7 @@ static void cli_connect(cli_info_t *cli, int sd)
         TEST_ERROR(("Rank %d has bad state: expect %d have %d!",
                      cli_rank(cli), CLI_FORKED, cli->state));
         test_abort = true;
+        passed = false;
         return;
     }
 
@@ -198,6 +201,7 @@ static void cli_finalize(cli_info_t *cli)
         TEST_ERROR(("rank %d: bad client state: expect %d have %d!",
                      cli_rank(cli), CLI_CONNECTED, cli->state));
         test_abort = true;
+        passed = false;
         return;
     }
 
@@ -210,6 +214,7 @@ static void cli_disconnect(cli_info_t *cli)
     if( CLI_FIN != cli->state ){
         TEST_ERROR(("rank %d: bad client state: expect %d have %d!",
                      cli_rank(cli), CLI_FIN, cli->state));
+        passed = false;
     }
 
     if( 0 > cli->sd ){
@@ -240,6 +245,7 @@ static void cli_terminate(cli_info_t *cli)
     if( CLI_DISCONN != cli->state ){
         TEST_ERROR(("rank %d: bad client state: expect %d have %d!",
                      cli_rank(cli), CLI_FIN, cli->state));
+        passed = false;
     }
     cli->pid = -1;
     TEST_VERBOSE(("Client rank = %d terminated", cli_rank(cli)));
@@ -567,6 +573,7 @@ int main(int argc, char **argv)
     if( !test_completed() ){
         TEST_ERROR(("Test exited by a timeout!"));
         cli_kill_all();
+	passed = false;
     }
 
     if( test_abort ){
@@ -598,9 +605,12 @@ int main(int argc, char **argv)
         for(i=0; i < cli_info_cnt; i++){
             TEST_ERROR(("\trank %d, state = %d\n", i, cli_info[i].state));
         }
+    }
 
+    if( passed ){
+        TEST_OUTPUT(("SERVER: Test PASSED!"));
     } else {
-        TEST_OUTPUT(("Test finished OK!"));
+        TEST_OUTPUT(("SERVER: Test FAILED!"));
     }
 
     close(listen_fd);
@@ -921,7 +931,7 @@ static void snd_ack(int sd, char *payload, size_t size)
 static void connection_handler(int incomind_sd, short flags, void* cbdata)
 {
     int rc, sd;
-    int rank;
+    int rank, localid;
 
     TEST_VERBOSE(("Incoming connection from the client"));
 
@@ -932,7 +942,7 @@ static void connection_handler(int incomind_sd, short flags, void* cbdata)
     }
 
     /* authenticate the connection */
-    if (PMIX_SUCCESS != (rc = PMIx_server_authenticate_client(sd, &rank, snd_ack))) {
+    if (PMIX_SUCCESS != (rc = PMIx_server_authenticate_client(sd, &rank, &localid, snd_ack))) {
         TEST_ERROR(("PMIx srv: Bad authentification!"));
         test_abort = true;
         return;
